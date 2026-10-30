@@ -1,3 +1,4 @@
+import json
 from io import BytesIO
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
@@ -212,3 +213,33 @@ async def test_calibration_plugins_can_be_disabled(monkeypatch) -> None:
             plugin_service.get_plugin_schedule('CalibrationPlugin')
     finally:
         monkeypatch.setattr(config, 'CALIBRATION_PLUGIN_ENABLED', original)
+
+
+async def test_vault_plugin_generates_assets(tmp_path: Path) -> None:
+    from trmnl_server.plugins.vault import VaultPlugin
+    src = tmp_path / 'screen.json'
+    src.write_text(json.dumps({
+        'built': '2026-10-29 20:52', 'week': '2026-W44',
+        'three': [{'label': 'Sort the kit', 'week': True}, {'label': 'Book the dentist', 'week': False}],
+        'due': [{'label': 'Book the dentist', 'date': '2026-10-30', 'days': 1, 'starred': True},
+                {'label': 'Eye test', 'date': '2026-11-04', 'days': 6, 'starred': False}],
+        'overdue': 0,
+        'habits': [{'name': 'Cardio', 'gap': 3, 'maxGap': 4, 'scheduled': True, 'state': 'missed'},
+                   {'name': 'Strength', 'gap': 2, 'maxGap': 4, 'scheduled': True, 'state': 'today'},
+                   {'name': 'Voice', 'gap': 1, 'maxGap': 2, 'scheduled': False, 'state': 'soon'},
+                   {'name': 'Sleep', 'gap': 45, 'maxGap': 2, 'scheduled': False, 'state': 'over'},
+                   {'name': 'Makeup', 'gap': 1, 'maxGap': 13, 'scheduled': False, 'state': 'quiet'}],
+        'questions': 2,
+        'next_external': {'label': 'Renewal', 'date': '2026-11-03', 'days': 5},
+        'review': {'state': 'amber'},
+        'warnings': [{'title': 'Review W44 open', 'detail': 'last 2026-10-28'}],
+    }), encoding='utf-8')
+    plugin = VaultPlugin()
+    plugin.json_path = str(src)
+    output = await plugin.run(output_dir=str(tmp_path))
+    assert isinstance(output, PluginOutput)
+    _assert_output_assets(output)
+    assert Image.open(output.grayscale_path).size == (1236, 1648)
+
+    plugin.json_path = str(tmp_path / 'missing.json')
+    assert await plugin.run(output_dir=str(tmp_path)) is None
